@@ -1,0 +1,134 @@
+package com.example.TricycleDetector
+
+import android.net.Uri
+import android.os.Bundle
+import android.view.View
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.Fragment
+import android.graphics.Bitmap
+import androidx.lifecycle.lifecycleScope
+import com.example.TricycleDetector.Constants.LABEL_PATH
+import com.example.TricycleDetector.Constants.MODEL_PATH
+import com.example.TricycleDetector.Detector.Detector
+import com.example.TricycleDetector.Detector.VideoDetector
+import com.example.TricycleDetector.databinding.FragmentVideoDetectorBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class VideoDetectorFragment : Fragment(R.layout.fragment_video_detector) {
+    private lateinit var binding: FragmentVideoDetectorBinding
+    private lateinit var videoDetector: VideoDetector
+    private var lastProcessedFrame: Bitmap? = null
+
+    private val selectVideo = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { processVideo(it) }
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        binding = FragmentVideoDetectorBinding.bind(view)
+
+        setupDetector()
+        setupUI()
+    }
+
+    private fun setupDetector() {
+        videoDetector = VideoDetector(
+            requireContext(),
+            MODEL_PATH,
+            LABEL_PATH,
+            object : Detector.DetectorListener.WithPreview {
+                override fun onDetect(boundingBoxes: List<Detector.BoundingBox>, inferenceTime: Long) {
+                    activity?.runOnUiThread {
+                        val result = buildString {
+                            append("Detection time: ${inferenceTime}ms\n")
+                            boundingBoxes.forEachIndexed { index, box ->
+                                append("Detection $index: Confidence: ${box.confidence}\n")
+                            }
+                        }
+                        binding.resultText.text = result
+
+                        // Update progress
+                        val progress = videoDetector.getProgress()
+                        binding.progressBar.progress = (progress * 100).toInt()
+                    }
+                }
+
+                override fun onEmptyDetect() {
+                    activity?.runOnUiThread {
+                        binding.resultText.text = "No objects detected"
+                    }
+                }
+
+                override fun onProcessedImageReady(processedBitmap: Bitmap) {
+                    lastProcessedFrame = processedBitmap
+                    activity?.runOnUiThread {
+                        binding.videoPreview.setImageBitmap(processedBitmap)
+                    }
+                }
+
+                override fun getLastProcessedFrame(): Bitmap? = lastProcessedFrame
+            }
+        )
+    }
+
+    private fun setupUI() {
+        binding.apply {
+            selectVideoButton.setOnClickListener {
+                selectVideo.launch("video/*")
+            }
+
+            processVideoButton.setOnClickListener {
+                // Toggle processing state
+                if (processVideoButton.text == getString(R.string.stop_processing)) {
+                    videoDetector.stopProcessing()
+                    processVideoButton.text = getString(R.string.process_video)
+                } else {
+                    processVideoButton.text = getString(R.string.stop_processing)
+                }
+            }
+
+            saveVideoButton.setOnClickListener {
+                // Save the processed video
+                lastProcessedUri?.let { uri ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        videoDetector.processVideo(requireContext(), uri, true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var lastProcessedUri: Uri? = null
+
+    private fun processVideo(uri: Uri) {
+        lastProcessedUri = uri
+
+        // Reset UI
+        binding.apply {
+            progressBar.progress = 0
+            resultText.text = ""
+            processVideoButton.text = getString(R.string.stop_processing)
+            saveVideoButton.isEnabled = false
+        }
+
+        // Process video in background
+        lifecycleScope.launch(Dispatchers.IO) {
+            videoDetector.processVideo(requireContext(), uri)
+
+            withContext(Dispatchers.Main) {
+                binding.apply {
+                    processVideoButton.text = getString(R.string.process_video)
+                    saveVideoButton.isEnabled = true
+                }
+            }
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        lastProcessedFrame?.recycle()
+        lastProcessedFrame = null
+    }
+}
