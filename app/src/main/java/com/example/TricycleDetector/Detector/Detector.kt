@@ -21,6 +21,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.random.Random
 
 open class Detector(
     private val context: Context,
@@ -38,9 +39,9 @@ open class Detector(
 
     // Make IOU threshold mutable
     private var iouThreshold = DEFAULT_IOU_THRESHOLD
+    private val labelColors = mutableMapOf<Int, Int>()
 
     private val paint = Paint().apply {
-        color = Color.RED
         style = Paint.Style.STROKE
         strokeWidth = 2f
         textSize = 32f
@@ -53,6 +54,17 @@ open class Detector(
         private val OUTPUT_IMAGE_TYPE = DataType.FLOAT32
         private const val CONFIDENCE_THRESHOLD = 0.25f
         private const val DEFAULT_IOU_THRESHOLD = 0.7f
+    }
+
+    private fun generateRandomColor(): Int {
+        val hue = Random.nextFloat() * 360
+        val saturation = 0.7f + Random.nextFloat() * 0.3f  // 70-100% saturation
+        val value = 0.8f + Random.nextFloat() * 0.2f       // 80-100% value
+
+        // Convert HSV to RGB
+        val color = FloatArray(3)
+        Color.colorToHSV(Color.HSVToColor(255, floatArrayOf(hue, saturation, value)), color)
+        return Color.HSVToColor(color)
     }
 
     fun setIouThreshold(threshold: Float) {
@@ -109,7 +121,8 @@ open class Detector(
         try {
             val model = FileUtil.loadMappedFile(context, modelPath)
             val options = Interpreter.Options().apply {
-                numThreads = 4
+                val numCores = Runtime.getRuntime().availableProcessors()
+                numThreads = minOf(4, numCores)
             }
             interpreter = Interpreter(model, options)
 
@@ -209,14 +222,21 @@ open class Detector(
         detectorListener.onDetect(bestBoxes, detectionTime)
     }
 
+    // Get or generate color for a class index
+    private fun getColorForClass(classIndex: Int): Int {
+        return labelColors.getOrPut(classIndex) { generateRandomColor() }
+    }
+
     private fun drawDetections(bitmap: Bitmap, boxes: List<BoundingBox>): Bitmap {
         val outputBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(outputBitmap)
 
         boxes.forEach { box ->
+            val classColor = getColorForClass(box.classIndex)
+
             // Draw bounding box
             paint.style = Paint.Style.STROKE
-            paint.color = Color.RED
+            paint.color = classColor
             canvas.drawRect(
                 box.x1 * bitmap.width,
                 box.y1 * bitmap.height,
@@ -231,9 +251,14 @@ open class Detector(
                 val textX = box.x1 * bitmap.width
                 val textY = (box.y1 * bitmap.height) - paint.textSize/2
 
-                // Draw text background
+                // Draw text background with semi-transparent version of the class color
                 paint.style = Paint.Style.FILL
-                paint.color = Color.argb(128, 0, 0, 0)
+                paint.color = Color.argb(
+                    128,
+                    Color.red(classColor),
+                    Color.green(classColor),
+                    Color.blue(classColor)
+                )
                 val textBounds = Rect()
                 paint.getTextBounds(label, 0, label.length, textBounds)
                 canvas.drawRect(
@@ -244,7 +269,7 @@ open class Detector(
                     paint
                 )
 
-                // Draw text
+                // Draw text in white for better contrast
                 paint.color = Color.WHITE
                 canvas.drawText(label, textX, textY, paint)
             }

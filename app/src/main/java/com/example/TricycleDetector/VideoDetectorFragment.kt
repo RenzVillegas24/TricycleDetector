@@ -82,9 +82,9 @@ class VideoDetectorFragment : Fragment(R.layout.fragment_video_detector) {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 targetFps = availableFps[position]
                 frameInterval = (sourceFrameRate / targetFps).roundToInt()
-                if (selectedVideoUri != null) {
+//                if (selectedVideoUri != null) {
 //                    startProcessing()
-                }
+//                }
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}

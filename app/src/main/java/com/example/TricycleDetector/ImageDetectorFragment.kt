@@ -14,6 +14,7 @@ import com.example.TricycleDetector.Detector.Detector
 import com.example.TricycleDetector.Detector.ImageDetector
 import com.example.TricycleDetector.databinding.FragmentImageDetectorBinding
 
+
 class ImageDetectorFragment : Fragment(R.layout.fragment_image_detector) {
     private lateinit var binding: FragmentImageDetectorBinding
     private lateinit var imageDetector: ImageDetector
